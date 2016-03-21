@@ -1,0 +1,13 @@
+[package]
+name = "mempool"
+version = "0.1.0"  #:version
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = "A fast thread safe memory pool for reusing allocations."
+documentation = "http://burntsushi.net/rustdoc/mempool/"
+homepage = "https://github.com/BurntSushi/mempool"
+repository = "https://github.com/BurntSushi/mempool"
+readme = "README.md"
+keywords = ["memory", "pool", "allocation", "reuse", "lock-free"]
+license = "Unlicense/MIT"
+
+# [dev-dependencies]
