@@ -10,4 +10,12 @@ readme = "README.md"
 keywords = ["memory", "pool", "allocation", "reuse", "lock-free"]
 license = "Unlicense/MIT"
 
-# [dev-dependencies]
+[dev-dependencies]
+crossbeam = "0.2"
+syncbox = "0.2"
+
+[features]
+nightly = []
+
+[profile.bench]
+debug = true
