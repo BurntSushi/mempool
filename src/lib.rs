@@ -32,6 +32,8 @@ pub struct Pool<T: Send + 'static> {
     create: CreateFn<T>,
 }
 
+unsafe impl<T: Send + 'static> Sync for Pool<T> {}
+
 /// A guard for putting values back into the pool on drop.
 #[derive(Debug)]
 pub struct PoolGuard<'a, T: Send + 'static> {
