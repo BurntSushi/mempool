@@ -1,6 +1,6 @@
 [package]
 name = "mempool"
-version = "0.1.1"  #:version
+version = "0.1.2"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "A fast thread safe memory pool for reusing allocations."
 documentation = "http://burntsushi.net/rustdoc/mempool/"
