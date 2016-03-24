@@ -47,12 +47,24 @@ fn mutex_lock_unlock(b: &mut Bencher) {
 }
 
 #[bench]
-fn mempool_get_put(b: &mut Bencher) {
+fn mempool_get_put_arc(b: &mut Bencher) {
     let pool = Pool::new(dummy());
     let _ = pool.get();
     b.iter(|| {
         black_box({
             let data = pool.get();
+            drop(data);
+        })
+    });
+}
+
+#[bench]
+fn mempool_get_put_ref(b: &mut Bencher) {
+    let pool = Pool::new(dummy());
+    let _ = pool.get_ref();
+    b.iter(|| {
+        black_box({
+            let data = pool.get_ref();
             drop(data);
         })
     });
