@@ -14,25 +14,37 @@ let pool = Pool::new(Box::new(|| "foobar"));
 assert_eq!("foobar", *pool.get());
 ```
 */
+#![allow(dead_code, unused_imports)]
 #![deny(missing_docs)]
 #![cfg_attr(feature = "nightly", feature(test))]
 
 use std::cell::UnsafeCell;
+use std::collections::hash_map::{HashMap, Entry};
 use std::fmt;
 use std::ops;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, ATOMIC_USIZE_INIT};
 use std::sync::atomic::Ordering;
 
+static THREAD_ID_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+thread_local!(
+    static THREAD_ID: usize =
+        THREAD_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
+);
+
 /// The type of an initialization function.
-pub type CreateFn<T> = Box<Fn() -> T + Send + Sync + 'static>;
+pub type CreateFn<T> = Box<Fn() -> T + Send + 'static>;
 
 /// A fast memory pool.
-pub struct Pool<T: Send + 'static>(Arc<_Pool<T>>);
+pub struct Pool<T: Send + 'static>(Arc<PoolInner<T>>);
 
-struct _Pool<T: Send + 'static> {
-    stack: Stack<T>,
+unsafe impl<T: Send + 'static> Sync for PoolInner<T> {}
+
+struct PoolInner<T: Send + 'static> {
+    owner: AtomicUsize,
     create: CreateFn<T>,
+    local: T,
+    global: Mutex<HashMap<usize, Box<T>>>,
 }
 
 impl<T: Send + 'static> Clone for Pool<T> {
@@ -47,28 +59,15 @@ impl<T: fmt::Debug + Send + 'static> fmt::Debug for Pool<T> {
     }
 }
 
-/// A guard for putting values back into the pool on drop.
-///
-/// This stores a borrowed reference to the pool that it originated from.
-#[derive(Debug)]
-pub struct RefGuard<'a, T: Send + 'static> {
-    pool: &'a Pool<T>,
-    data: Option<T>,
-}
-
-/// A guard for putting values back into the pool on drop.
-#[derive(Debug)]
-pub struct Guard<T: Send + 'static> {
-    pool: Pool<T>,
-    data: Option<T>,
-}
-
 impl<T: Send + 'static> Pool<T> {
     /// Create a new memory pool with the given initialization function.
     pub fn new(create: CreateFn<T>) -> Pool<T> {
-        Pool(Arc::new(_Pool {
-            stack: Stack::new(),
+        let local = (create)();
+        Pool(Arc::new(PoolInner {
+            owner: AtomicUsize::new(0),
             create: create,
+            local: local,
+            global: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -82,125 +81,35 @@ impl<T: Send + 'static> Pool<T> {
     ///
     /// When the guard is dropped, the underlying value is returned to the
     /// pool.
-    pub fn get(&self) -> Guard<T> {
-        match self.0.stack.pop() {
-            None => Guard { pool: self.clone(), data: Some((self.0.create)()) },
-            Some(data) => Guard { pool: self.clone(), data: Some(data) },
+    pub fn get(&self) -> &T {
+        let id = THREAD_ID.with(|id| *id);
+        let owner = self.0.owner.load(Ordering::Relaxed);
+        if owner == id {
+            return &self.0.local;
         }
+        self.get_slow(owner, id)
     }
 
-    /// Get a new value from the pool.
-    ///
-    /// If one does not exist, then it is created with the initialization
-    /// function.
-    ///
-    /// This returns a guard with a borrowed reference to the underlying pool.
-    ///
-    /// When the guard is dropped, the underlying value is returned to the
-    /// pool.
-    pub fn get_ref(&self) -> RefGuard<T> {
-        match self.0.stack.pop() {
-            None => RefGuard { pool: self, data: Some((self.0.create)()) },
-            Some(data) => RefGuard { pool: self, data: Some(data) },
+    #[cold]
+    fn get_slow(&self, owner: usize, thread_id: usize) -> &T {
+        if owner == 0 {
+            if self.0.owner.compare_and_swap(0, thread_id, Ordering::Relaxed) == 0 {
+                return &self.0.local;
+            }
         }
-    }
-
-    /// Puts a new value into the pool.
-    fn put(&self, data: T) {
-        self.0.stack.push(data);
-    }
-}
-
-impl<'a, T: Send + 'static> Drop for RefGuard<'a, T> {
-    fn drop(&mut self) {
-        let data = self.data.take().unwrap();
-        self.pool.put(data);
-    }
-}
-
-impl<'a, T: Send + 'static> ops::Deref for RefGuard<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &T { self.data.as_ref().unwrap() }
-}
-
-impl<'a, T: Send + 'static> ops::DerefMut for RefGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut T { self.data.as_mut().unwrap() }
-}
-
-impl<T: Send + 'static> Drop for Guard<T> {
-    fn drop(&mut self) {
-        let data = self.data.take().unwrap();
-        self.pool.put(data);
-    }
-}
-
-impl<T: Send + 'static> ops::Deref for Guard<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T { self.data.as_ref().unwrap() }
-}
-
-impl<T: Send + 'static> ops::DerefMut for Guard<T> {
-    fn deref_mut(&mut self) -> &mut T { self.data.as_mut().unwrap() }
-}
-
-struct Stack<T: Send + 'static> {
-    stack: UnsafeCell<Vec<T>>,
-    lock: SpinLock,
-}
-
-unsafe impl<T: Send + 'static> Sync for Stack<T> {}
-
-impl<T: Send + 'static> Stack<T> {
-    fn new() -> Stack<T> {
-        Stack {
-            stack: UnsafeCell::new(vec![]),
-            lock: SpinLock::new(),
+        let mut global = self.0.global.lock().unwrap();
+        match global.entry(thread_id) {
+            Entry::Occupied(ref e) => {
+                let p: *const T = &**e.get();
+                unsafe { &*p }
+            }
+            Entry::Vacant(e) => {
+                let t = Box::new((self.0.create)());
+                let p: *const T = &*t;
+                e.insert(t);
+                unsafe { &*p }
+            }
         }
-    }
-
-    fn push(&self, data: T) {
-        self.lock.lock();
-        let mut stack = unsafe { &mut *self.stack.get() };
-        stack.push(data);
-        self.lock.unlock();
-    }
-
-    fn pop(&self) -> Option<T> {
-        self.lock.lock();
-        let mut stack = unsafe { &mut *self.stack.get() };
-        let data = stack.pop();
-        self.lock.unlock();
-        data
-    }
-}
-
-impl<T: fmt::Debug + Send + 'static> fmt::Debug for Stack<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Stack")
-         .field("stack", &"...")
-         .field("lock", &self.lock)
-         .finish()
-    }
-}
-
-#[derive(Debug)]
-struct SpinLock {
-    locked: AtomicBool,
-}
-
-impl SpinLock {
-    fn new() -> SpinLock {
-        SpinLock { locked: AtomicBool::new(false) }
-    }
-
-    fn lock(&self) {
-        while self.locked.swap(true, Ordering::Acquire) {}
-    }
-
-    fn unlock(&self) {
-        self.locked.store(false, Ordering::Release)
     }
 }
 
@@ -212,6 +121,7 @@ mod bench;
 mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering::SeqCst;
+    use std::thread;
 
     use super::{CreateFn, Pool};
 
@@ -245,7 +155,11 @@ mod tests {
         let pool = Pool::new(dummy());
         let val = pool.get();
         assert_eq!(&Dummy(0), &*val);
-        assert_eq!(&Dummy(1), &*pool.get());
+
+        let pool2 = pool.clone();
+        thread::spawn(move || {
+            assert_eq!(&Dummy(1), &*pool2.get());
+        }).join().unwrap();
     }
 
     #[test]
