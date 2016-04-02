@@ -9,7 +9,7 @@ use self::crossbeam::sync::{MsQueue, SegQueue, TreiberStack};
 use self::syncbox::ArrayQueue;
 use self::test::{Bencher, black_box};
 
-use {CreateFn, Pool, SpinLock};
+use {CreateFn, Pool};
 
 #[derive(Debug)]
 struct Dummy(usize);
@@ -25,17 +25,6 @@ fn dummy() -> CreateFn<Box<Dummy>> {
 }
 
 #[bench]
-fn spin_lock_unlock(b: &mut Bencher) {
-    let lock = SpinLock::new();
-    b.iter(|| {
-        black_box({
-            lock.lock();
-            lock.unlock();
-        })
-    });
-}
-
-#[bench]
 fn mutex_lock_unlock(b: &mut Bencher) {
     let lock = Mutex::new(());
     b.iter(|| {
@@ -47,24 +36,12 @@ fn mutex_lock_unlock(b: &mut Bencher) {
 }
 
 #[bench]
-fn mempool_get_put_arc(b: &mut Bencher) {
+fn mempool_get_put_tls(b: &mut Bencher) {
     let pool = Pool::new(dummy());
     let _ = pool.get();
     b.iter(|| {
         black_box({
             let data = pool.get();
-            drop(data);
-        })
-    });
-}
-
-#[bench]
-fn mempool_get_put_ref(b: &mut Bencher) {
-    let pool = Pool::new(dummy());
-    let _ = pool.get_ref();
-    b.iter(|| {
-        black_box({
-            let data = pool.get_ref();
             drop(data);
         })
     });

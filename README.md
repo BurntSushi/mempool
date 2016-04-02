@@ -1,6 +1,9 @@
 mempool
 =======
-A fast thread safe memory pool for reusing allocations.
+This crate provides a fast thread safe memory pool for reusing allocations. It
+aggressively optimizes for the single-threaded use case, but gracefully
+supports access from multiple threads simultaneously. In particular, values in
+a pool may not be shared across threads.
 
 [![Linux build status](https://api.travis-ci.org/BurntSushi/mempool.png)](https://travis-ci.org/BurntSushi/mempool)
 [![Windows build status](https://ci.appveyor.com/api/projects/status/github/BurntSushi/mempool?svg=true)](https://ci.appveyor.com/project/BurntSushi/mempool)
@@ -19,17 +22,20 @@ To use this crate, add `mempool` as a dependency to your project's
 
 ```
 [dependencies]
-mempool = "0.1"
+mempool = "0.3"
 ```
 
 ### Benchmarks
 
+This crate currently uses the `mempool_get_put_tls` approach.
+
 ```
-test bench::mempool_get_put   ... bench:          27 ns/iter (+/- 0)
-test bench::mpmc_get_put      ... bench:          32 ns/iter (+/- 0)
-test bench::mutex_get_put     ... bench:          45 ns/iter (+/- 0)
-test bench::refcell_get_put   ... bench:          17 ns/iter (+/- 0)
-test bench::treiber_get_put   ... bench:          95 ns/iter (+/- 1)
+test bench::crossbeam_ms_get_put      ... bench:         105 ns/iter (+/- 4)
+test bench::crossbeam_seg_get_put     ... bench:          87 ns/iter (+/- 25)
+test bench::crossbeam_treiber_get_put ... bench:          93 ns/iter (+/- 1)
+test bench::mempool_get_put_tls       ... bench:           1 ns/iter (+/- 0)
+test bench::mpmc_get_put              ... bench:          30 ns/iter (+/- 0)
+test bench::mutex_get_put             ... bench:          46 ns/iter (+/- 0)
 ```
 
 ### Motivation
@@ -39,5 +45,5 @@ potentially optimizing single threaded use over multithreaded use.
 
 ### Future work
 
-The current implementation uses a spin lock, which assumes there is very little
-contention.
+The current implementation is very fast for single threaded use, but probably
+slower than it needs to be for multithreaded use.
