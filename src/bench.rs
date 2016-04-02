@@ -24,19 +24,6 @@ fn dummy() -> CreateFn<Box<Dummy>> {
     })
 }
 
-/*
-#[bench]
-fn spin_lock_unlock(b: &mut Bencher) {
-    let lock = SpinLock::new();
-    b.iter(|| {
-        black_box({
-            lock.lock();
-            lock.unlock();
-        })
-    });
-}
-*/
-
 #[bench]
 fn mutex_lock_unlock(b: &mut Bencher) {
     let lock = Mutex::new(());
@@ -49,7 +36,7 @@ fn mutex_lock_unlock(b: &mut Bencher) {
 }
 
 #[bench]
-fn mempool_get_put_ref(b: &mut Bencher) {
+fn mempool_get_put_tls(b: &mut Bencher) {
     let pool = Pool::new(dummy());
     let _ = pool.get();
     b.iter(|| {
@@ -59,20 +46,6 @@ fn mempool_get_put_ref(b: &mut Bencher) {
         })
     });
 }
-
-/*
-#[bench]
-fn mempool_get_put_ref(b: &mut Bencher) {
-    let pool = Pool::new(dummy());
-    let _ = pool.get_ref();
-    b.iter(|| {
-        black_box({
-            let data = pool.get_ref();
-            drop(data);
-        })
-    });
-}
-*/
 
 #[bench]
 fn refcell_get_put(b: &mut Bencher) {
