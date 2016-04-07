@@ -39,17 +39,17 @@ static COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 thread_local!(static THREAD_ID: usize = COUNTER.fetch_add(1, Relaxed) + 1);
 
 /// The type of an initialization function.
-pub type CreateFn<T> = Box<Fn() -> T + Send + 'static>;
+pub type CreateFn<T> = Box<Fn() -> T + Send + Sync + 'static>;
 
 /// A fast memory pool.
-pub struct Pool<T: Send + 'static> {
+pub struct Pool<T: Send> {
     create: CreateFn<T>,
     owner: AtomicUsize,
     owner_val: T,
     global: Mutex<HashMap<usize, Box<T>>>,
 }
 
-unsafe impl<T: Send + 'static> Sync for Pool<T> {}
+unsafe impl<T: Send> Sync for Pool<T> {}
 
 impl<T: fmt::Debug + Send + 'static> fmt::Debug for Pool<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -57,7 +57,7 @@ impl<T: fmt::Debug + Send + 'static> fmt::Debug for Pool<T> {
     }
 }
 
-impl<T: Send + 'static> Pool<T> {
+impl<T: Send> Pool<T> {
     /// Create a new memory pool with the given initialization function.
     pub fn new(create: CreateFn<T>) -> Pool<T> {
         let owner_val = (create)();
