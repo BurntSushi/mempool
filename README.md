@@ -1,3 +1,10 @@
+**THIS CRATE IS DEPRECATED**. Instead, you should prefer the
+[`thread_local`](https://github.com/Amanieu/thread_local-rs) crate. In
+particular, the `CachedThreadLocal` should replace the pool in this crate
+(still optimizing for the single thread case, but also being much faster in
+the multithreaded case).
+
+
 mempool
 =======
 This crate provides a fast thread safe memory pool for reusing allocations. It
